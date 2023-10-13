@@ -1,0 +1,8 @@
+name: abbr
+author: Peter Van Dyken
+version: 0.0.1
+contributes:
+  filters:
+    - abbr.lua
+  shortcodes:
+    - table.lua
