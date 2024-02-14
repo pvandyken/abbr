@@ -1,4 +1,3 @@
-
 local read_config = require('_extensions.pvandyken.abbr.config')
 local utils = require('_extensions.pvandyken.abbr.utils')
 local has_entries = utils.has_entries
@@ -25,13 +24,16 @@ local DONT_EXPAND = {}
 local FOUND_ABBRS = {}
 
 ---List of all abbreviations expanded at least once in all contexts. Used when
----generating abbreviatio table
+---generating abbreviation table
 ---@type table<string,boolean>
 local ABBR_TABLE = {}
 
 ---Normalized abbreviation configuration table
----@type table<string,AbbrSettings>
+---@type table<string,Abbreviations>
 local CONFIG = {}
+
+---@type AbbrConfig
+local ABBR_CONFIG = {}
 
 ---Flag marking a word as the first in a sentence or block. Used for
 ---capitalization detection
@@ -56,7 +58,7 @@ local FOUND_VAGUE_CAPITAL = false
 local function format(val, plural, capitalize, define)
     local i = 0
     local total = 0
-    val:walk({Str = function(_) total = total + 1 end})
+    val:walk({ Str = function(_) total = total + 1 end })
     local formatted = val:walk({
         Str = function(str)
             s = str.text
@@ -65,7 +67,7 @@ local function format(val, plural, capitalize, define)
                 s = s:gsub("^%l", string.upper)
             end
             if plural and i == total then
-                return pandoc.Str(s.."s")
+                return pandoc.Str(s .. "s")
             end
             return pandoc.Str(s)
         end
@@ -122,8 +124,11 @@ local function format_abbr(str)
                     FOUND_VAGUE_CAPITAL = true
                 end
             end
-            local define = CONFIG[abbr].expand ~= "always" and get_count(ABBRS, abbr) > 1
-            local val = format(CONFIG[abbr].expanded, plural, capitalize, define and abbr or nil)
+            local define = CONFIG[abbr].define == "always" or
+                (CONFIG[abbr].expand ~= "always" and get_count(ABBRS, abbr) >= ABBR_CONFIG.min_occurances)
+
+            local val = format(CONFIG[abbr].expanded, plural, capitalize,
+                define and pandoc.utils.stringify(CONFIG[abbr].abbr) or nil)
             -- quarto.log.warning(val)
             subs:insert(val)
             if CONFIG[abbr].expand == "auto" then
@@ -177,7 +182,7 @@ local function context(block, centre, range)
             end
         end
     })
-    quarto.log.warning("::: "  .. table.concat(surrounding, " "))
+    quarto.log.warning("::: " .. table.concat(surrounding, " "))
 end
 
 ---@param p pandoc.Para | pandoc.Header
@@ -234,7 +239,8 @@ local function init()
         return false
     end
     if not has_entries(CONFIG) then
-        CONFIG = read_config(CONFIG_FILE)
+        ABBR_CONFIG = read_config(CONFIG_FILE)
+        CONFIG = ABBR_CONFIG.abbreviations
     end
 
     ABBRS = {}
@@ -269,7 +275,7 @@ local Pandoc = function(docs)
 
     for _, abbr in pairs(ABBRS) do
         FOUND_ABBRS[abbr] = true
-        if get_count(ABBRS, abbr) > 1 then
+        if DONT_EXPAND[abbr] ~= true and get_count(ABBRS, abbr) >= ABBR_CONFIG.min_occurances then
             ABBR_TABLE[abbr] = true
         end
     end
@@ -290,7 +296,7 @@ local Table = function(table)
 
     for _, abbr in pairs(ABBRS) do
         FOUND_ABBRS[abbr] = true
-        if get_count(ABBRS, abbr) > 1 then
+        if DONT_EXPAND[abbr] ~= true and get_count(ABBRS, abbr) >= ABBR_CONFIG.min_occurances then
             ABBR_TABLE[abbr] = true
         end
     end

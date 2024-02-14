@@ -38,7 +38,7 @@ return {
             return nil
         end
         local file_name = pandoc.utils.stringify(meta.abbr_file)
-        local config = read_config(file_name)
+        local config = read_config(file_name).abbreviations
         local abbrs = sort_abbreviations(meta.ABBR_TABLE)
         local caption = "Table of Abbreviations"
         local alignments = { pandoc.AlignLeft, pandoc.AlignLeft }
@@ -49,7 +49,7 @@ return {
         for _, key in pairs(abbrs) do
             settings = config[key]
             if settings.expand ~= "always" then
-                rows:insert({ { pandoc.Plain(key) }, { capitalize(settings.expanded) } })
+                rows:insert({ { pandoc.Plain(settings.abbr) }, { capitalize(settings.expanded) } })
             end
         end
 
