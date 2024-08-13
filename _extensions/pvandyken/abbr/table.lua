@@ -2,33 +2,6 @@ local read_config = require('_extensions.pvandyken.abbr.config')
 local utils = require('_extensions.pvandyken.abbr.utils')
 
 
----@param config table<string,any>
----@return string[]
-local function sort_abbreviations(config)
-    local abbrs = utils.keys(config)
-    table.sort(abbrs, utils.icase_sort)
-    return abbrs
-end
-
----@param elems pandoc.Inlines
-function capitalize(elems)
-    local minor_words = {
-        "and", "as", "but", "for", "if", "nor", "or", "so", "yet", "a", "an",
-        "the", "at", "by", "in", "of", "off", "on", "per", "to", "up", "via",
-        "de", "lest", "sans", "vis-à-vis", "vis-a-vis", "qua", "pro", "versus",
-        "albeit", "ergo"
-    }
-    local i = 0
-    return elems:walk({
-        Str = function(s)
-            i = i + 1
-            if i ~= 1 and utils.contains(minor_words, s.text) then
-                return s
-            end
-            return pandoc.Str(s.text:sub(1, 1):upper() .. s.text:sub(2))
-        end
-    })
-end
 
 return {
     ---@param meta Meta
@@ -39,7 +12,7 @@ return {
         end
         local file_name = pandoc.utils.stringify(meta.abbr_file)
         local config = read_config(file_name).abbreviations
-        local abbrs = sort_abbreviations(meta.ABBR_TABLE)
+        local abbrs = utils.sort_abbreviations(meta.ABBR_TABLE)
         local caption = "Table of Abbreviations"
         local alignments = { pandoc.AlignLeft, pandoc.AlignLeft }
         local widths = { 0, 0 }
@@ -49,7 +22,7 @@ return {
         for _, key in pairs(abbrs) do
             settings = config[key]
             if settings.expand ~= "always" then
-                rows:insert({ { pandoc.Plain(settings.abbr) }, { capitalize(settings.expanded) } })
+                rows:insert({ { pandoc.Plain(settings.abbr) }, { utils.capitalize(settings.expanded) } })
             end
         end
 

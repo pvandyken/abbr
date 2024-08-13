@@ -28,6 +28,10 @@ local FOUND_ABBRS = {}
 ---@type table<string,boolean>
 local ABBR_TABLE = {}
 
+---Array tracking missing abbreviations so that we only report each one once
+---@type string[]
+local REPORTED_MISSING = {}
+
 ---Normalized abbreviation configuration table
 ---@type table<string,Abbreviations>
 local CONFIG = {}
@@ -47,6 +51,10 @@ local FIRST_WORD_IN_BLOCK = true
 ---Flag indicating a vague capital was found and that context should be printed
 ---@type boolean
 local FOUND_VAGUE_CAPITAL = false
+
+---Flag indicating the integration with latex acronym package
+---@type boolean
+local LATEX_MODE = false
 
 
 -- Function to format value
@@ -79,6 +87,20 @@ local function format(val, plural, capitalize, define)
     return formatted
 end
 
+---Format acronym for latex as general
+---@param abbr string
+---@param plural boolean
+---@param capitalize boolean
+---@param define boolean
+---@return pandoc.List
+local function format_latex(abbr, plural, capitalize, define)
+    local l1 = capitalize and "A" or "a"
+    local lp = plural and "p" or ""
+    local lf = define and "f" or ""
+    return pandoc.List({ pandoc.RawInline("latex", "\\" .. l1 .. "c" .. lf .. lp .. "{" .. abbr .. "}") })
+end
+
+
 
 ---For each string, find abbreviations within the string and format based on
 ---document context
@@ -96,7 +118,7 @@ local function format_abbr(str)
         local plural = false
 
         if not CONFIG[abbr] then
-            if CONFIG[abbr:sub(1, -2)] then
+            if abbr:sub(-1) == "s" and CONFIG[abbr:sub(1, -2)] then
                 abbr = abbr:sub(1, -2)
                 plural = true
             else
@@ -105,6 +127,7 @@ local function format_abbr(str)
         end
 
 
+        local always_expand = CONFIG[abbr].expand == "always" or get_count(ABBRS, abbr) < ABBR_CONFIG.min_occurances
         if DONT_EXPAND[abbr] then
             subs:insert(plural and (abbr .. "s") or abbr)
         else
@@ -124,15 +147,18 @@ local function format_abbr(str)
                     FOUND_VAGUE_CAPITAL = true
                 end
             end
-            local define = CONFIG[abbr].define == "always" or
-                (CONFIG[abbr].expand ~= "always" and get_count(ABBRS, abbr) >= ABBR_CONFIG.min_occurances)
+            if LATEX_MODE and not always_expand then
+                subs:insert(format_latex(abbr, plural, capitalize, CONFIG[abbr].define == "always"))
+            else
+                local define = CONFIG[abbr].define == "always" or not always_expand
 
-            local val = format(CONFIG[abbr].expanded, plural, capitalize,
-                define and pandoc.utils.stringify(CONFIG[abbr].abbr) or nil)
-            -- quarto.log.warning(val)
-            subs:insert(val)
-            if CONFIG[abbr].expand == "auto" then
-                DONT_EXPAND[abbr] = true
+                local val = format(CONFIG[abbr].expanded, plural, capitalize,
+                    define and pandoc.utils.stringify(CONFIG[abbr].abbr) or nil)
+                -- quarto.log.warning(val)
+                subs:insert(val)
+                if not always_expand then
+                    DONT_EXPAND[abbr] = true
+                end
             end
         end
 
@@ -196,9 +222,10 @@ local function collect_abbr(p)
                     table.insert(ABBRS, abbr)
                 elseif CONFIG[abbr:sub(1, -2)] and abbr:sub(-1) == "s" then
                     table.insert(ABBRS, abbr:sub(1, -2))
-                else
+                elseif not utils.contains(REPORTED_MISSING, abbr) then
                     quarto.log.warning("Unrecognized abbr: &" .. flag .. abbr)
                     context(p, i, 10)
+                    table.insert(REPORTED_MISSING, abbr)
                 end
             end
         end
@@ -259,6 +286,9 @@ local Meta = function(meta)
         quarto.log.warning("abbr_file must be defined as a string")
     end
     CONFIG_FILE = pandoc.utils.stringify(file_name)
+    if quarto.doc.is_format("latex") and meta.abbr_with_acronym then
+        LATEX_MODE = true
+    end
 end
 local Pandoc = function(docs)
     if not init() then
@@ -270,7 +300,10 @@ local Pandoc = function(docs)
     docs:walk({
         Para = collect_abbr,
         Header = collect_abbr,
-
+        BlockQuote = collect_abbr,
+        OrderedList = collect_abbr,
+        BulletList = collect_abbr,
+        LineBlock = collect_abbr,
     })
 
     for _, abbr in pairs(ABBRS) do
@@ -282,7 +315,11 @@ local Pandoc = function(docs)
 
     return docs:walk({
         Para = process_abbr,
-        Header = process_abbr
+        Header = process_abbr,
+        BlockQuote = process_abbr,
+        OrderedList = process_abbr,
+        BulletList = process_abbr,
+        LineBlock = process_abbr,
     })
     --   quarto.log.warning(docs.blocks)
 end
@@ -320,10 +357,53 @@ local Check = function(meta)
     return meta
 end
 
+---Create a list of abbreviations for latex mode
+---@param meta pandoc.Meta
+local ListOfAbbr = function(meta)
+    if not LATEX_MODE then
+        return meta
+    end
+    if not init() then
+        return meta
+    end
+    quarto.doc.use_latex_package("acronym")
+    quarto.doc.use_latex_package("titlecaps")
+    quarto.doc.include_text('in-header', '\\makeatletter\n')
+    quarto.doc.include_text('in-header',
+        '\\expandafter\\patchcmd\\csname AC@\\AC@prefix{}@acro\\endcsname{{#3}}{{\\titlecap #3}}{}{}\n')
+    quarto.doc.include_text('in-header',
+        '\\expandafter\\patchcmd\\csname AC@\\AC@prefix{}@acro\\endcsname{{#3}}{{\\titlecap #3}}{}{}\n')
+    quarto.doc.include_text('in-header', '\\AddToHook{env/acronym/begin}{\\def\\AC@hyperref[#1]#2{#2}}\n')
+    quarto.doc.include_text('in-header', '\\makeatother\n')
+
+    local abbrs = utils.sort_abbreviations(ABBR_TABLE)
+
+    local longest = utils.findLongestString(abbrs)
+    local rows = pandoc.List({ pandoc.RawBlock("latex", "\\begin{acronym}[" .. longest .. "]\n\n") })
+    for _, key in pairs(abbrs) do
+        settings = CONFIG[key]
+        if settings.expand ~= "always" then
+            local row = ({
+                pandoc.RawInline("latex", "\\acro{" .. key .. "}["),
+                settings.abbr,
+                pandoc.RawInline("latex", "]{"),
+                settings.expanded,
+                pandoc.RawInline("latex", "}"),
+            })
+            rows:insert(row)
+            rows:insert(pandoc.RawBlock("latex", "\n\n"))
+        end
+    end
+    rows:insert(pandoc.RawBlock("latex", "\\end{acronym}\n\n"))
+
+    meta.abbr_toa = rows
+    return meta
+end
 
 return {
     { Meta = Meta },
     { Table = Table },
     { Pandoc = Pandoc },
     { Meta = Check },
+    { Meta = ListOfAbbr }
 }
