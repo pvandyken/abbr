@@ -218,7 +218,14 @@ local function collect_abbr(p)
     p:walk({
         Str = function(s)
             i = i + 1
-            for flag, abbr in s.text:gmatch("&([-+]?)([a-zA-Z0-9]+)") do
+            for amp, flag, abbr in s.text:gmatch("(&?)([-+]?)([a-zA-Z0-9]+)") do
+                if amp == "" then
+                    if CONFIG[abbr] or CONFIG[abbr:sub(1, -2)] then
+                        quarto.log.warning("Unmarked abbr: " .. flag .. abbr)
+                        context(p, i, 10)
+                    end
+                    goto continue
+                end
                 if CONFIG[abbr] then
                     table.insert(ABBRS, abbr)
                 elseif CONFIG[abbr:sub(1, -2)] and abbr:sub(-1) == "s" then
@@ -228,6 +235,7 @@ local function collect_abbr(p)
                     context(p, i, 10)
                     table.insert(REPORTED_MISSING, abbr)
                 end
+                ::continue::
             end
         end
     })
