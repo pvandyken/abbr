@@ -112,14 +112,14 @@ local function format_abbr(str)
     local stops = {}
 
     local i = 0
-    for flag, abbr in str:gmatch("&([-+]?)([a-zA-Z0-9]+)") do
-        ---@cast abbr string
+    for flag, id in str:gmatch("&([-+]?)([a-zA-Z0-9]+)") do
+        ---@cast id string
         i = i + 1
         local plural = false
 
-        if not CONFIG[abbr] then
-            if abbr:sub(-1) == "s" and CONFIG[abbr:sub(1, -2)] then
-                abbr = abbr:sub(1, -2)
+        if not CONFIG[id] then
+            if id:sub(-1) == "s" and CONFIG[id:sub(1, -2)] then
+                id = id:sub(1, -2)
                 plural = true
             else
                 goto continue
@@ -127,8 +127,9 @@ local function format_abbr(str)
         end
 
 
-        local always_expand = CONFIG[abbr].expand == "always" or get_count(ABBRS, abbr) < ABBR_CONFIG.min_occurances
-        if DONT_EXPAND[abbr] then
+        local abbr = CONFIG[id].abbr
+        local always_expand = CONFIG[id].expand == "always" or get_count(ABBRS, id) < ABBR_CONFIG.min_occurances
+        if DONT_EXPAND[id] then
             subs:insert(plural and (abbr .. "s") or abbr)
         else
             local capitalize
@@ -140,24 +141,24 @@ local function format_abbr(str)
                 capitalize = FIRST_WORD
                 if capitalize and not FIRST_WORD_IN_BLOCK then
                     quarto.log.warning(
-                        "Vague capitalization: &" .. flag .. abbr ..
-                        ". Use either &+" .. abbr .. " or &-" .. abbr ..
+                        "Vague capitalization: &" .. flag .. id ..
+                        ". Use either &+" .. id .. " or &-" .. id ..
                         " to clarify upper or lower case"
                     )
                     FOUND_VAGUE_CAPITAL = true
                 end
             end
             if LATEX_MODE and not always_expand then
-                subs:insert(format_latex(abbr, plural, capitalize, CONFIG[abbr].define == "always"))
+                subs:insert(format_latex(id, plural, capitalize, CONFIG[id].define == "always"))
             else
-                local define = CONFIG[abbr].define == "always" or not always_expand
+                local define = CONFIG[id].define == "always" or not always_expand
 
-                local val = format(CONFIG[abbr].expanded, plural, capitalize,
-                    define and pandoc.utils.stringify(CONFIG[abbr].abbr) or nil)
+                local val = format(CONFIG[id].expanded, plural, capitalize,
+                    define and pandoc.utils.stringify(abbr) or nil)
                 -- quarto.log.warning(val)
                 subs:insert(val)
                 if not always_expand then
-                    DONT_EXPAND[abbr] = true
+                    DONT_EXPAND[id] = true
                 end
             end
         end
@@ -167,7 +168,7 @@ local function format_abbr(str)
         if starts[-1] ~= nil then
             init = starts[-1] + 2
         end
-        local start, stop = str:find("&" .. flag .. abbr .. (plural and "s" or ""), init, true)
+        local start, stop = str:find("&" .. flag .. id .. (plural and "s" or ""), init, true)
         table.insert(starts, start - 1)
         table.insert(stops, stop + 1)
         ::continue::
