@@ -52,6 +52,9 @@ local FIRST_WORD_IN_BLOCK = true
 ---@type boolean
 local LATEX_MODE = false
 
+---List of skipped divs
+---@type pandoc.Div[]
+local SKIPPED_DIVS = {}
 
 -- Function to format value
 ---@param val pandoc.Inlines
@@ -222,7 +225,7 @@ local function collect_abbr(p)
             i = i + 1
             for amp, flag, abbr in s.text:gmatch("(&?)([-+]?)([a-zA-Z0-9]+)") do
                 if amp == "" then
-                    if CONFIG[abbr] or CONFIG[abbr:sub(1, -2)] then
+                    if CONFIG[abbr] or (CONFIG[abbr:sub(1, -2)] and abbr:sub(-1) == "s") then
                         quarto.log.warning("Unmarked abbr: " .. flag .. abbr)
                         context(p, i, 10)
                     end
@@ -309,13 +312,23 @@ local Pandoc = function(docs)
 
     -- quarto.log.warning(CONFIG)
 
-    docs.blocks:walk({
+    docs.blocks = docs.blocks:walk({
+        Div = function (div)
+            if utils.contains(div.attr.classes, "abbr-skip") then
+                table.insert(SKIPPED_DIVS, div)
+                local pos = #SKIPPED_DIVS
+                local placeholder = pandoc.Div("")
+                placeholder.attributes["abbr-placeholder"] = tostring(pos)
+                return placeholder
+            end
+        end,
         Para = collect_abbr,
         Header = collect_abbr,
         BlockQuote = collect_abbr,
         OrderedList = collect_abbr,
         BulletList = collect_abbr,
         LineBlock = collect_abbr,
+        traverse = "topdown",
     })
 
     for _, abbr in pairs(ABBRS) do
@@ -332,9 +345,14 @@ local Pandoc = function(docs)
         OrderedList = process_abbr,
         BulletList = process_abbr,
         LineBlock = process_abbr,
+        Div = function (div)
+            if div.attributes["abbr-placeholder"] ~= nil then
+                return SKIPPED_DIVS[tonumber(div.attributes["abbr-placeholder"])]
+            end
+        end,
+        traverse = "topdown",
     })
     return docs
-    --   quarto.log.warning(docs.blocks)
 end
 
 local Table = function(table)
