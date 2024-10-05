@@ -306,7 +306,7 @@ local Pandoc = function(docs)
 
     -- quarto.log.warning(CONFIG)
 
-    docs:walk({
+    docs.blocks:walk({
         Para = collect_abbr,
         Header = collect_abbr,
         BlockQuote = collect_abbr,
@@ -322,7 +322,7 @@ local Pandoc = function(docs)
         end
     end
 
-    return docs:walk({
+    docs.blocks = docs.blocks:walk({
         Para = process_abbr,
         Header = process_abbr,
         BlockQuote = process_abbr,
@@ -330,6 +330,7 @@ local Pandoc = function(docs)
         BulletList = process_abbr,
         LineBlock = process_abbr,
     })
+    return docs
     --   quarto.log.warning(docs.blocks)
 end
 
