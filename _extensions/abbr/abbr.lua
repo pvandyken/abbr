@@ -153,7 +153,7 @@ local function format_abbr(str, preceeding_article)
                     found_vague_capital = true
                 end
             end
-            local replace_article = preceeding_article and i == 1 and str:sub(1) == "&"
+            local replace_article = preceeding_article and i == 1 and str:sub(1, 1) == "&"
             if replace_article then
                 article = CONFIG[id].article
             end
@@ -174,7 +174,6 @@ local function format_abbr(str, preceeding_article)
                     DONT_EXPAND[id] = true
                 end
             end
-
         end
 
         ---@type integer | nil
@@ -289,20 +288,28 @@ local function process_abbr(p)
             else
                 FIRST_WORD = false
             end
-            if new.text == "a" or new.text == "an" then
+            FIRST_WORD_IN_BLOCK = false
+            if new.text == "a" or new.text == "an" or new.text == "A" or new.text == "An" then
                 preceding_article = i
+                s = pandoc.Span(new)
+                s.attributes = { article_ix = tostring(i), capitalized = new.text:sub(1, 1) == "A" and "yes" or "" }
+                return s
             else
                 preceding_article = nil
             end
-            FIRST_WORD_IN_BLOCK = false
             return new
         end
     })
-    i = 0
     return p:walk({
-        Str = function(s)
-            i = i + 1
-            return articles[i]
+        Span = function(s)
+            local ix = tonumber(s.attributes.article_ix)
+            if ix ~= nil and articles[ix] ~= nil then
+                a = articles[ix]
+                if s.attributes.capitalized == "yes" then
+                    a = pandoc.Str(pandoc.utils.stringify(a):gsub("^%l", string.upper))
+                end
+                return a
+            end
         end
     })
 end
@@ -311,7 +318,7 @@ end
 ---Initialize global variables for a new abbreviation formattingtext
 local function init()
     if CONFIG_FILE == nil then
-    return false
+        return false
     end
     if not has_entries(CONFIG) then
         ABBR_CONFIG = read_config(CONFIG_FILE)
@@ -346,7 +353,7 @@ local Pandoc = function(docs)
     -- quarto.log.warning(CONFIG)
 
     docs.blocks = docs.blocks:walk({
-        Div = function (div)
+        Div = function(div)
             if utils.contains(div.attr.classes, "abbr-skip") then
                 table.insert(SKIPPED_DIVS, div)
                 local pos = #SKIPPED_DIVS
@@ -378,7 +385,7 @@ local Pandoc = function(docs)
         OrderedList = process_abbr,
         BulletList = process_abbr,
         LineBlock = process_abbr,
-        Div = function (div)
+        Div = function(div)
             if div.attributes["abbr-placeholder"] ~= nil then
                 return SKIPPED_DIVS[tonumber(div.attributes["abbr-placeholder"])]
             end
