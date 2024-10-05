@@ -48,10 +48,6 @@ local FIRST_WORD = true
 ---detection (unlike FIRST_WORD, this flag is not ambiguous about periods)
 local FIRST_WORD_IN_BLOCK = true
 
----Flag indicating a vague capital was found and that context should be printed
----@type boolean
-local FOUND_VAGUE_CAPITAL = false
-
 ---Flag indicating the integration with latex acronym package
 ---@type boolean
 local LATEX_MODE = false
@@ -105,11 +101,13 @@ end
 ---For each string, find abbreviations within the string and format based on
 ---document context
 ---@param str string
+---@return FormattedAbbr
 local function format_abbr(str)
     ---@type pandoc.List
     local subs = pandoc.List({})
     local starts = {}
     local stops = {}
+    local found_vague_capital = false
 
     local i = 0
     for flag, id in str:gmatch("&([-+]?)([a-zA-Z0-9]+)") do
@@ -145,7 +143,7 @@ local function format_abbr(str)
                         ". Use either &+" .. id .. " or &-" .. id ..
                         " to clarify upper or lower case"
                     )
-                    FOUND_VAGUE_CAPITAL = true
+                    found_vague_capital = true
                 end
             end
             if LATEX_MODE and not always_expand then
@@ -191,7 +189,11 @@ local function format_abbr(str)
 
     subbed:insert(str:sub(pos))
 
-    return subbed
+    return {
+        text = subbed,
+        found_vague_capital = found_vague_capital,
+        article = nil,
+    }
 end
 
 -- Function to provide context for error messages
@@ -239,6 +241,7 @@ local function collect_abbr(p)
             end
         end
     })
+    return p
 end
 
 ---@param p pandoc.Para | pandoc.Header
@@ -250,10 +253,9 @@ local function process_abbr(p)
         Str = function(s)
             i = i + 1
             if s.text:match("&") then
-                new = format_abbr(s.text)
-                if FOUND_VAGUE_CAPITAL then
+                local formatted = format_abbr(s.text)
+                if formatted.found_vague_capital then
                     context(p, i, 10)
-                    FOUND_VAGUE_CAPITAL = false
                 end
             else
                 new = s
@@ -263,6 +265,7 @@ local function process_abbr(p)
             else
                 FIRST_WORD = false
             end
+            FIRST_WORD_IN_BLOCK = false
             return new
         end
     })
