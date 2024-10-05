@@ -13,7 +13,8 @@ local AbbrConfig = {}
 ---@class Abbreviations
 ---@field expanded pandoc.Inlines
 ---@field expand "always" | "auto" | "never"
----@field define "always" | "auto" |
+---@field define "always" | "auto"
+---@field article pandoc.Inlines | nil
 ---@field abbr pandoc.Inlines | nil
 
 -- Function to read the configuration file
@@ -66,7 +67,8 @@ local function read_config(file_name)
                 expanded = settings.expanded,
                 abbr = settings.abbr or key,
                 expand = expand or "auto",
-                define = define or "auto"
+                define = define or "auto",
+                article = settings.article,
             }
         end
     end

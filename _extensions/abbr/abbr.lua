@@ -91,12 +91,14 @@ end
 ---@param plural boolean
 ---@param capitalize boolean
 ---@param define boolean
+---@param article boolean
 ---@return pandoc.List
-local function format_latex(abbr, plural, capitalize, define)
-    local l1 = capitalize and "A" or "a"
-    local lp = plural and "p" or ""
-    local lf = define and "f" or ""
-    return pandoc.List({ pandoc.RawInline("latex", "\\" .. l1 .. "c" .. lf .. lp .. "{" .. abbr .. "}") })
+local function format_latex(abbr, plural, capitalize, define, article)
+    local la = article and (capitalize and "I" or "i") or ""
+    local l1 = (capitalize and not article) and "A" or "a"
+    local lp = (plural and not article) and "p" or ""
+    local lf = (define and not article) and "f" or ""
+    return pandoc.List({ pandoc.RawInline("latex", "\\" .. la .. l1 .. "c" .. lf .. lp .. "{" .. abbr .. "}") })
 end
 
 
@@ -104,13 +106,15 @@ end
 ---For each string, find abbreviations within the string and format based on
 ---document context
 ---@param str string
+---@param preceeding_article boolean
 ---@return FormattedAbbr
-local function format_abbr(str)
+local function format_abbr(str, preceeding_article)
     ---@type pandoc.List
     local subs = pandoc.List({})
     local starts = {}
     local stops = {}
     local found_vague_capital = false
+    local article = nil
 
     local i = 0
     for flag, id in str:gmatch("&([-+]?)([a-zA-Z0-9]+)") do
@@ -149,8 +153,16 @@ local function format_abbr(str)
                     found_vague_capital = true
                 end
             end
+            local replace_article = preceeding_article and i == 1 and str:sub(1) == "&"
+            if replace_article then
+                article = CONFIG[id].article
+            end
             if LATEX_MODE and not always_expand then
-                subs:insert(format_latex(id, plural, capitalize, CONFIG[id].define == "always"))
+                replace_article = replace_article and article ~= nil
+                subs:insert(format_latex(id, plural, capitalize, CONFIG[id].define == "always", replace_article))
+                if replace_article then
+                    article = pandoc.Str("")
+                end
             else
                 local define = CONFIG[id].define == "always" or not always_expand
 
@@ -162,6 +174,7 @@ local function format_abbr(str)
                     DONT_EXPAND[id] = true
                 end
             end
+
         end
 
         ---@type integer | nil
@@ -195,7 +208,7 @@ local function format_abbr(str)
     return {
         text = subbed,
         found_vague_capital = found_vague_capital,
-        article = nil,
+        article = article,
     }
 end
 
@@ -252,13 +265,21 @@ local function process_abbr(p)
     FIRST_WORD = true
     FIRST_WORD_IN_BLOCK = true
     local i = 0
-    return p:walk({
+    ---@type integer | nil
+    local preceding_article = nil
+    ---@type table<number,pandoc.Inline>
+    local articles = {}
+    p = p:walk({
         Str = function(s)
             i = i + 1
             if s.text:match("&") then
-                local formatted = format_abbr(s.text)
+                local formatted = format_abbr(s.text, preceding_article ~= nil)
                 if formatted.found_vague_capital then
                     context(p, i, 10)
+                end
+                new = formatted.text
+                if preceding_article ~= nil and formatted.article ~= nil then
+                    articles[preceding_article] = formatted.article
                 end
             else
                 new = s
@@ -268,17 +289,29 @@ local function process_abbr(p)
             else
                 FIRST_WORD = false
             end
+            if new.text == "a" or new.text == "an" then
+                preceding_article = i
+            else
+                preceding_article = nil
+            end
             FIRST_WORD_IN_BLOCK = false
             return new
+        end
+    })
+    i = 0
+    return p:walk({
+        Str = function(s)
+            i = i + 1
+            return articles[i]
         end
     })
 end
 
 
----Initialize global variables for a new abbreviation formatting context
+---Initialize global variables for a new abbreviation formattingtext
 local function init()
     if CONFIG_FILE == nil then
-        return false
+    return false
     end
     if not has_entries(CONFIG) then
         ABBR_CONFIG = read_config(CONFIG_FILE)

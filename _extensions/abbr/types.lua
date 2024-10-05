@@ -7,4 +7,4 @@
 ---@class FormattedAbbr
 ---@field text pandoc.Inline
 ---@field found_vague_capital boolean
----@field article string | nil
+---@field article pandoc.Inline | nil
